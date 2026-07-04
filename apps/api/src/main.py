@@ -21,6 +21,7 @@ from src.modules.invitations.router import router as invitations_router
 from src.modules.employees.router import router as employees_router
 from src.modules.attendance.router import router as attendance_router
 from src.modules.leave.router import router as leave_router
+from src.modules.payroll.router import router as payroll_router
 
 # Setup logging
 setup_logging()
@@ -45,6 +46,7 @@ app.include_router(invitations_router)
 app.include_router(employees_router)
 app.include_router(attendance_router)
 app.include_router(leave_router)
+app.include_router(payroll_router)
 
 # Add middleware
 class RequestLoggingMiddleware(BaseHTTPMiddleware):
