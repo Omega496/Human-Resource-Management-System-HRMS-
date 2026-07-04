@@ -7,6 +7,7 @@ from src.db.models.leave_request import LeaveRequest
 from src.db.models.payroll_rule import PayrollRule
 from src.db.models.payroll_ledger_line import PayrollLedgerLine
 from src.db.models.pseudonymization_map import PseudonymizationMap
+from src.db.models.automation_job import AutomationJob
 
 __all__ = [
     "Organization",
@@ -18,4 +19,5 @@ __all__ = [
     "PayrollRule",
     "PayrollLedgerLine",
     "PseudonymizationMap",
+    "AutomationJob",
 ]

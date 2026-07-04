@@ -46,4 +46,5 @@ class Base(AsyncAttrs, DeclarativeBase):
 # Import models to register them with Base.metadata
 from src.db.models.employee import Employee
 from src.db.models.organization import Organization
+from src.db.models.automation_job import AutomationJob
 

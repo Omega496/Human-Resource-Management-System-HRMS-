@@ -31,6 +31,38 @@ class InvitationAccept(BaseModel):
     password: str
 
 
+@router.get("/invitations")
+async def get_invitations(
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+):
+    ctx = request.state.tenant_context
+    if not ctx:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Authentication required",
+        )
+    if ctx.role != "admin":
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Only admins can view invitations",
+        )
+    stmt = select(Invitation).order_by(Invitation.created_at.desc())
+    res = await db.execute(stmt)
+    records = res.scalars().all()
+    return [
+        {
+            "id": str(r.id),
+            "email": r.email,
+            "role": r.role,
+            "expires_at": r.expires_at.isoformat(),
+            "used_at": r.used_at.isoformat() if r.used_at else None,
+            "created_at": r.created_at.isoformat(),
+        }
+        for r in records
+    ]
+
+
 @router.post("/invitations", status_code=status.HTTP_201_CREATED)
 async def create_invitation(
     payload: InvitationCreate,

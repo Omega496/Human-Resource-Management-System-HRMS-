@@ -28,6 +28,63 @@ class AdjustmentPayload(BaseModel):
     reason: str
 
 
+@router.get("/lines")
+async def get_payroll_lines(
+    employee_id: uuid.UUID,
+    month: str,  # format YYYY-MM
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+):
+    ctx = request.state.tenant_context
+    if not ctx:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Authentication required",
+        )
+    if ctx.role != "admin":
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Only admins can view payroll records",
+        )
+    try:
+        y, m = map(int, month.split("-"))
+        target_date = date(y, m, 1)
+    except Exception:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Invalid month format. Expected YYYY-MM.",
+        )
+
+    stmt = (
+        select(PayrollLedgerLine)
+        .where(
+            PayrollLedgerLine.organization_id == ctx.organization_id,
+            PayrollLedgerLine.employee_id == employee_id,
+            PayrollLedgerLine.ledger_month == target_date,
+        )
+        .order_by(PayrollLedgerLine.created_at.desc())
+    )
+    res = await db.execute(stmt)
+    records = res.scalars().all()
+    return [
+        {
+            "id": str(r.id),
+            "organization_id": str(r.organization_id),
+            "employee_id": str(r.employee_id),
+            "ledger_month": r.ledger_month.isoformat(),
+            "line_type": r.line_type,
+            "amount_cents": r.amount_cents,
+            "currency": r.currency,
+            "status": r.status,
+            "adjustment_of": str(r.adjustment_of) if r.adjustment_of else None,
+            "computed_from_rule_id": str(r.computed_from_rule_id) if r.computed_from_rule_id else None,
+            "created_at": r.created_at.isoformat(),
+            "closed_at": r.closed_at.isoformat() if r.closed_at else None,
+        }
+        for r in records
+    ]
+
+
 @router.post("/close-month", status_code=status.HTTP_200_OK)
 async def close_month(
     payload: CloseMonthPayload,

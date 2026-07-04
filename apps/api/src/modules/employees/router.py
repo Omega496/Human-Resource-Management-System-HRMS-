@@ -30,6 +30,70 @@ class EmployeeUpdate(BaseModel):
         return v
 
 
+@router.get("/employees")
+async def get_employees(
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+):
+    ctx = request.state.tenant_context
+    if not ctx:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Authentication required",
+        )
+    if ctx.role != "admin":
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Only admins can view employee records",
+        )
+    stmt = select(Employee).order_by(Employee.full_name.asc())
+    res = await db.execute(stmt)
+    records = res.scalars().all()
+    return [
+        {
+            "id": str(r.id),
+            "email": r.email,
+            "full_name": r.full_name,
+            "timezone": r.timezone,
+            "role": r.role,
+            "status": r.status,
+            "deleted_at": r.deleted_at.isoformat() if r.deleted_at else None,
+        }
+        for r in records
+    ]
+
+
+@router.get("/employees/me", status_code=status.HTTP_200_OK)
+async def get_me(
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+):
+    ctx = request.state.tenant_context
+    if not ctx:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Authentication required",
+        )
+
+    stmt = select(Employee).where(Employee.id == ctx.user_id)
+    res = await db.execute(stmt)
+    employee = res.scalar_one_or_none()
+    if not employee:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Employee not found",
+        )
+
+    return {
+        "id": str(employee.id),
+        "email": employee.email,
+        "full_name": employee.full_name,
+        "timezone": employee.timezone,
+        "role": employee.role,
+        "organization_id": str(employee.organization_id),
+    }
+
+
 @router.patch("/employees/me", status_code=status.HTTP_200_OK)
 async def update_me(
     payload: EmployeeUpdate,

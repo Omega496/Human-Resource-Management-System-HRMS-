@@ -6,6 +6,8 @@ os.environ["DATABASE_URL"] = "postgresql+asyncpg://hrms_app:hrms_app_password@lo
 os.environ["REDIS_URL"] = "redis://localhost:6379/0"
 os.environ["JWT_SIGNING_KEY"] = "test_signing_key_not_for_prod"
 os.environ["ENVIRONMENT"] = "local"
+os.environ["AUTOMATION_CALLBACK_SECRET"] = "test_automation_callback_secret_123456789"
+os.environ["REPLAY_WINDOW_SECONDS"] = "300"
 
 # Ensure src is in python path
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "../..")))

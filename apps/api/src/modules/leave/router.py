@@ -23,6 +23,35 @@ class LeaveRequestCreate(BaseModel):
     end_time: datetime
 
 
+@router.get("/leave-requests")
+async def get_leave_requests(
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+):
+    ctx = request.state.tenant_context
+    if not ctx:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Authentication required",
+        )
+    stmt = select(LeaveRequest)
+    if ctx.role != "admin":
+        stmt = stmt.where(LeaveRequest.employee_id == ctx.user_id)
+    stmt = stmt.order_by(LeaveRequest.start_time.desc())
+    res = await db.execute(stmt)
+    records = res.scalars().all()
+    return [
+        {
+            "id": str(r.id),
+            "employee_id": str(r.employee_id),
+            "start_time": r.start_time.isoformat(),
+            "end_time": r.end_time.isoformat(),
+            "status": r.status,
+        }
+        for r in records
+    ]
+
+
 @router.post("/leave-requests", status_code=status.HTTP_201_CREATED)
 async def create_leave_request(
     payload: LeaveRequestCreate,

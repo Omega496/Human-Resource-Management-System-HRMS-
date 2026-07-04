@@ -14,6 +14,8 @@ class Settings(BaseSettings):
     JWT_SIGNING_KEY: SecretStr
     JWT_ACCESS_TOKEN_TTL_SECONDS: int = Field(default=600)
     ENVIRONMENT: str = Field(default="production")
+    AUTOMATION_CALLBACK_SECRET: SecretStr
+    REPLAY_WINDOW_SECONDS: int = Field(default=300)
 
 
 settings = Settings()

@@ -23,6 +23,7 @@ from src.modules.attendance.router import router as attendance_router
 from src.modules.leave.router import router as leave_router
 from src.modules.payroll.router import router as payroll_router
 from src.modules.offboarding.router import router as offboarding_router
+from src.modules.automation_ingress.router import public_router as automation_public_router, internal_router as automation_internal_router
 
 # Setup logging
 setup_logging()
@@ -49,6 +50,8 @@ app.include_router(attendance_router)
 app.include_router(leave_router)
 app.include_router(payroll_router)
 app.include_router(offboarding_router)
+app.include_router(automation_public_router)
+app.include_router(automation_internal_router)
 
 # Add middleware
 class RequestLoggingMiddleware(BaseHTTPMiddleware):
