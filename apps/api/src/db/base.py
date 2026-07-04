@@ -18,6 +18,26 @@ async_sessionmaker_factory = async_sessionmaker(
     expire_on_commit=False,
 )
 
+def get_superuser_url(url: str) -> str:
+    import os
+    env_val = os.environ.get("SUPERUSER_DATABASE_URL")
+    if env_val:
+        return env_val
+    return url.replace("hrms_app:hrms_app_password", "hrms_user:hrms_password")
+
+# Superuser engine & sessionmaker for RLS-bypassing operations (e.g. auth lookup)
+superuser_engine = create_async_engine(
+    get_superuser_url(settings.DATABASE_URL),
+    echo=False,
+    future=True,
+    poolclass=pool.NullPool,
+)
+
+superuser_sessionmaker = async_sessionmaker(
+    bind=superuser_engine,
+    expire_on_commit=False,
+)
+
 
 class Base(AsyncAttrs, DeclarativeBase):
     pass

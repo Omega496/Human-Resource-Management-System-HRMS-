@@ -36,6 +36,10 @@ class Employee(Base):
         server_default=text("'active'"),
         nullable=False,
     )
+    password_hash: Mapped[str | None] = mapped_column(
+        Text,
+        nullable=True,
+    )
     deleted_at: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True),
         nullable=True,

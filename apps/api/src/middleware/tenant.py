@@ -1,42 +1,70 @@
+import logging
 import uuid
 
-from fastapi import HTTPException
+import jwt
+from fastapi import status
 from starlette.middleware.base import BaseHTTPMiddleware, RequestResponseEndpoint
 from starlette.requests import Request
-from starlette.responses import Response
+from starlette.responses import Response, JSONResponse
 
-from src.core.config import settings
 from src.core.context import TenantContext
+from src.modules.auth.helpers import decode_access_token
+from src.core.revocation import revocation_cache
+
+logger = logging.getLogger(__name__)
+
+# Paths that do not require JWT authentication
+EXEMPT_PATHS = {"/healthz", "/auth/login", "/auth/refresh"}
 
 
 class TenantContextMiddleware(BaseHTTPMiddleware):
     async def dispatch(self, request: Request, call_next: RequestResponseEndpoint) -> Response:
-        debug_org_id = request.headers.get("X-Debug-Org-Id")
+        path = request.url.path
 
-        if debug_org_id:
-            if settings.ENVIRONMENT != "local":
-                # Raise hard error outside local environment
-                raise HTTPException(
-                    status_code=400,
-                    detail="X-Debug-Org-Id header is only allowed in local environment",
-                )
-            try:
-                org_uuid = uuid.UUID(debug_org_id)
-            except ValueError:
-                raise HTTPException(
-                    status_code=400,
-                    detail="Invalid X-Debug-Org-Id header value. Must be a valid UUID",
-                )
-
-            # Placholders for user_id and role
-            user_uuid = uuid.UUID("00000000-0000-0000-0000-000000000000")
-            request.state.tenant_context = TenantContext(
-                organization_id=org_uuid,
-                user_id=user_uuid,
-                role="admin",
-            )
-        else:
+        # Check path exemption (including FastAPI auto-docs)
+        if (
+            path in EXEMPT_PATHS
+            or path.startswith("/docs")
+            or path.startswith("/openapi.json")
+            or path.startswith("/redoc")
+        ):
             request.state.tenant_context = None
+            return await call_next(request)
 
-        response = await call_next(request)
-        return response
+        # Extract and verify authorization header
+        auth_header = request.headers.get("Authorization")
+        if not auth_header or not auth_header.startswith("Bearer "):
+            return JSONResponse(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                content={"detail": "Missing or invalid authorization credentials"},
+            )
+
+        token = auth_header.split(" ", 1)[1]
+        try:
+            claims = decode_access_token(token)
+            jti = claims.get("jti")
+            if not jti or revocation_cache.is_revoked(jti):
+                return JSONResponse(
+                    status_code=status.HTTP_401_UNAUTHORIZED,
+                    content={"detail": "Token is revoked"},
+                )
+
+            # Populate tenant context from verified claims
+            request.state.tenant_context = TenantContext(
+                organization_id=uuid.UUID(claims["org_id"]),
+                user_id=uuid.UUID(claims["sub"]),
+                role=claims["role"],
+            )
+        except jwt.InvalidTokenError as e:
+            return JSONResponse(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                content={"detail": str(e)},
+            )
+        except Exception as e:
+            logger.error(f"Authentication error: {e}", exc_info=True)
+            return JSONResponse(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                content={"detail": "Authentication failed"},
+            )
+
+        return await call_next(request)

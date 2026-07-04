@@ -9,17 +9,34 @@ from sqlalchemy import text
 from starlette.middleware.base import BaseHTTPMiddleware, RequestResponseEndpoint
 from starlette.requests import Request
 
+from contextlib import asynccontextmanager
+
 from src.core.config import settings
 from src.core.logging import setup_logging
 from src.core.redis import redis_client
 from src.db.base import async_sessionmaker_factory
 from src.middleware.tenant import TenantContextMiddleware
+from src.modules.auth.router import router as auth_router
 
 # Setup logging
 setup_logging()
 logger = logging.getLogger("api")
 
-app = FastAPI(title="Zero-Trust HRMS API")
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    # Startup: Hydrate cache and start Redis Pub/Sub listener
+    from src.core.revocation import revocation_cache
+    await revocation_cache.hydrate()
+    await revocation_cache.start_listener()
+    yield
+    # Shutdown: Stop listener
+    from src.core.revocation import revocation_cache
+    await revocation_cache.stop_listener()
+
+
+app = FastAPI(title="Zero-Trust HRMS API", lifespan=lifespan)
+app.include_router(auth_router)
 
 # Add middleware
 class RequestLoggingMiddleware(BaseHTTPMiddleware):

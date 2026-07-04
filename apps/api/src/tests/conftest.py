@@ -9,3 +9,17 @@ os.environ["ENVIRONMENT"] = "local"
 
 # Ensure src is in python path
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "../..")))
+
+import pytest_asyncio
+from src.core.redis import redis_client
+from src.db.base import engine, superuser_engine
+
+
+@pytest_asyncio.fixture(autouse=True)
+async def cleanup_connections():
+    yield
+    # Close Redis client connections to prevent loop mismatch
+    await redis_client.aclose()
+    # Dispose database engines to prevent loop mismatch
+    await engine.dispose()
+    await superuser_engine.dispose()
