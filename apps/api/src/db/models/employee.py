@@ -2,9 +2,10 @@ from datetime import datetime
 import uuid
 from typing import TYPE_CHECKING
 
+import zoneinfo
 from sqlalchemy import DateTime, ForeignKey, Text, UniqueConstraint, text
 from sqlalchemy.dialects.postgresql import CITEXT
-from sqlalchemy.orm import Mapped, mapped_column, relationship
+from sqlalchemy.orm import Mapped, mapped_column, relationship, validates
 
 from src.db.base import Base
 
@@ -59,3 +60,11 @@ class Employee(Base):
     __table_args__ = (
         UniqueConstraint("organization_id", "email", name="uq_organization_id_email"),
     )
+
+    @validates("timezone")
+    def validate_timezone(self, key, value):
+        try:
+            zoneinfo.ZoneInfo(value)
+        except Exception:
+            raise ValueError(f"Invalid timezone: {value}")
+        return value

@@ -18,6 +18,8 @@ from src.db.base import async_sessionmaker_factory
 from src.middleware.tenant import TenantContextMiddleware
 from src.modules.auth.router import router as auth_router
 from src.modules.invitations.router import router as invitations_router
+from src.modules.employees.router import router as employees_router
+from src.modules.attendance.router import router as attendance_router
 
 # Setup logging
 setup_logging()
@@ -39,6 +41,8 @@ async def lifespan(app: FastAPI):
 app = FastAPI(title="Zero-Trust HRMS API", lifespan=lifespan)
 app.include_router(auth_router)
 app.include_router(invitations_router)
+app.include_router(employees_router)
+app.include_router(attendance_router)
 
 # Add middleware
 class RequestLoggingMiddleware(BaseHTTPMiddleware):
