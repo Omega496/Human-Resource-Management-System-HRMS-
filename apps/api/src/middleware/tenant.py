@@ -14,7 +14,7 @@ from src.core.revocation import revocation_cache
 logger = logging.getLogger(__name__)
 
 # Paths that do not require JWT authentication
-EXEMPT_PATHS = {"/healthz", "/auth/login", "/auth/refresh"}
+EXEMPT_PATHS = {"/healthz", "/auth/login", "/auth/refresh", "/invitations/accept"}
 
 
 class TenantContextMiddleware(BaseHTTPMiddleware):
