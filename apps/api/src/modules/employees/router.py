@@ -110,3 +110,48 @@ async def update_employee(
         "timezone": employee.timezone,
         "role": employee.role,
     }
+
+
+from datetime import datetime, timezone
+
+@router.post("/employees/{employee_id}/terminate", status_code=status.HTTP_200_OK)
+async def terminate_employee(
+    employee_id: uuid.UUID,
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+):
+    ctx = request.state.tenant_context
+    if not ctx:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Authentication required",
+        )
+
+    if ctx.role != "admin":
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Only admins can terminate employees",
+        )
+
+    stmt = select(Employee).where(
+        Employee.id == employee_id,
+        Employee.organization_id == ctx.organization_id,
+    )
+    res = await db.execute(stmt)
+    employee = res.scalar_one_or_none()
+    if not employee:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Employee not found",
+        )
+
+    employee.status = "terminated"
+    employee.deleted_at = datetime.now(timezone.utc)
+
+    await db.flush()
+    return {
+        "id": employee.id,
+        "status": employee.status,
+        "deleted_at": employee.deleted_at,
+    }
+

@@ -6,6 +6,7 @@ from src.db.models.clock_event import ClockEvent
 from src.db.models.leave_request import LeaveRequest
 from src.db.models.payroll_rule import PayrollRule
 from src.db.models.payroll_ledger_line import PayrollLedgerLine
+from src.db.models.pseudonymization_map import PseudonymizationMap
 
 __all__ = [
     "Organization",
@@ -16,4 +17,5 @@ __all__ = [
     "LeaveRequest",
     "PayrollRule",
     "PayrollLedgerLine",
+    "PseudonymizationMap",
 ]
