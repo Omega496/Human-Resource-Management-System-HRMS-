@@ -23,11 +23,33 @@ class LeaveRequestCreate(BaseModel):
     end_time: datetime
 
 
-@router.get("/leave-requests")
+class LeaveRequestResponse(BaseModel):
+    id: str
+    employee_id: str
+    start_time: str
+    end_time: str
+    status: str
+
+
+class LeaveRequestCreateResponse(BaseModel):
+    id: uuid.UUID
+    employee_id: uuid.UUID
+    start_time: datetime
+    end_time: datetime
+    status: str
+
+
+@router.get("/leave-requests", response_model=list[LeaveRequestResponse])
 async def get_leave_requests(
     request: Request,
     db: AsyncSession = Depends(get_db),
-):
+) -> list[LeaveRequestResponse]:
+    """
+    Retrieve leave requests.
+    
+    Admins can view all leave requests in the organization. Normal employees can only view 
+    their own leave requests.
+    """
     ctx = request.state.tenant_context
     if not ctx:
         raise HTTPException(
@@ -41,23 +63,29 @@ async def get_leave_requests(
     res = await db.execute(stmt)
     records = res.scalars().all()
     return [
-        {
-            "id": str(r.id),
-            "employee_id": str(r.employee_id),
-            "start_time": r.start_time.isoformat(),
-            "end_time": r.end_time.isoformat(),
-            "status": r.status,
-        }
+        LeaveRequestResponse(
+            id=str(r.id),
+            employee_id=str(r.employee_id),
+            start_time=r.start_time.isoformat(),
+            end_time=r.end_time.isoformat(),
+            status=r.status,
+        )
         for r in records
     ]
 
 
-@router.post("/leave-requests", status_code=status.HTTP_201_CREATED)
+@router.post("/leave-requests", response_model=LeaveRequestCreateResponse, status_code=status.HTTP_201_CREATED)
 async def create_leave_request(
     payload: LeaveRequestCreate,
     request: Request,
     db: AsyncSession = Depends(get_db),
-):
+) -> LeaveRequestCreateResponse:
+    """
+    Create a new leave request.
+    
+    Validates that the end time is after the start time, checks for overlapping active 
+    leave requests using the exclusion constraint, and raises a conflict error if overlaps exist.
+    """
     ctx = request.state.tenant_context
     if not ctx:
         raise HTTPException(
@@ -126,21 +154,26 @@ async def create_leave_request(
 
     # Refresh to load db defaults/generated columns
     await db.refresh(leave_req)
-    return {
-        "id": leave_req.id,
-        "employee_id": leave_req.employee_id,
-        "start_time": leave_req.start_time,
-        "end_time": leave_req.end_time,
-        "status": leave_req.status,
-    }
+    return LeaveRequestCreateResponse(
+        id=leave_req.id,
+        employee_id=leave_req.employee_id,
+        start_time=leave_req.start_time,
+        end_time=leave_req.end_time,
+        status=leave_req.status,
+    )
 
 
-@router.patch("/leave-requests/{request_id}/approve", status_code=status.HTTP_200_OK)
+@router.patch("/leave-requests/{request_id}/approve", response_model=LeaveRequestCreateResponse, status_code=status.HTTP_200_OK)
 async def approve_leave_request(
     request_id: uuid.UUID,
     request: Request,
     db: AsyncSession = Depends(get_db),
-):
+) -> LeaveRequestCreateResponse:
+    """
+    Approve a pending leave request.
+    
+    Only accessible by admins.
+    """
     ctx = request.state.tenant_context
     if not ctx:
         raise HTTPException(
@@ -167,21 +200,28 @@ async def approve_leave_request(
     leave_req.status = "approved"
     await db.flush()
 
-    return {
-        "id": leave_req.id,
-        "employee_id": leave_req.employee_id,
-        "start_time": leave_req.start_time,
-        "end_time": leave_req.end_time,
-        "status": leave_req.status,
-    }
+    return LeaveRequestCreateResponse(
+        id=leave_req.id,
+        employee_id=leave_req.employee_id,
+        start_time=leave_req.start_time,
+        end_time=leave_req.end_time,
+        status=leave_req.status,
+    )
 
 
-@router.patch("/leave-requests/{request_id}/reject", status_code=status.HTTP_200_OK)
+@router.patch("/leave-requests/{request_id}/reject", response_model=LeaveRequestCreateResponse, status_code=status.HTTP_200_OK)
 async def reject_leave_request(
     request_id: uuid.UUID,
     request: Request,
     db: AsyncSession = Depends(get_db),
-):
+) -> LeaveRequestCreateResponse:
+    """
+    Reject a pending leave request.
+    
+    Excludes the request from the partial overlapping constraint check immediately, 
+    allowing other overlapping requests to be submitted.
+    Only accessible by admins.
+    """
     ctx = request.state.tenant_context
     if not ctx:
         raise HTTPException(
@@ -214,10 +254,10 @@ async def reject_leave_request(
     leave_req.status = "rejected"
     await db.flush()
 
-    return {
-        "id": leave_req.id,
-        "employee_id": leave_req.employee_id,
-        "start_time": leave_req.start_time,
-        "end_time": leave_req.end_time,
-        "status": leave_req.status,
-    }
+    return LeaveRequestCreateResponse(
+        id=leave_req.id,
+        employee_id=leave_req.employee_id,
+        start_time=leave_req.start_time,
+        end_time=leave_req.end_time,
+        status=leave_req.status,
+    )

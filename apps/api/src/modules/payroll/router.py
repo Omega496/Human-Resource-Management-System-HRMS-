@@ -28,13 +28,50 @@ class AdjustmentPayload(BaseModel):
     reason: str
 
 
-@router.get("/lines")
+class PayrollLineResponse(BaseModel):
+    id: str
+    organization_id: str
+    employee_id: str
+    ledger_month: str
+    line_type: str
+    amount_cents: int
+    currency: str
+    status: str
+    adjustment_of: str | None = None
+    computed_from_rule_id: str | None = None
+    created_at: str
+    closed_at: str | None = None
+
+
+class CloseMonthResponse(BaseModel):
+    closed_count: int
+
+
+class AdjustmentResponse(BaseModel):
+    id: uuid.UUID
+    organization_id: uuid.UUID
+    employee_id: uuid.UUID
+    ledger_month: date
+    line_type: str
+    amount_cents: int
+    currency: str
+    status: str
+    adjustment_of: uuid.UUID | None = None
+    computed_from_rule_id: uuid.UUID | None = None
+
+
+@router.get("/lines", response_model=list[PayrollLineResponse])
 async def get_payroll_lines(
     employee_id: uuid.UUID,
     month: str,  # format YYYY-MM
     request: Request,
     db: AsyncSession = Depends(get_db),
-):
+) -> list[PayrollLineResponse]:
+    """
+    Retrieve payroll ledger lines for a specific employee and month.
+    
+    Accessible only by admins. RLS enforces organization boundary.
+    """
     ctx = request.state.tenant_context
     if not ctx:
         raise HTTPException(
@@ -67,30 +104,36 @@ async def get_payroll_lines(
     res = await db.execute(stmt)
     records = res.scalars().all()
     return [
-        {
-            "id": str(r.id),
-            "organization_id": str(r.organization_id),
-            "employee_id": str(r.employee_id),
-            "ledger_month": r.ledger_month.isoformat(),
-            "line_type": r.line_type,
-            "amount_cents": r.amount_cents,
-            "currency": r.currency,
-            "status": r.status,
-            "adjustment_of": str(r.adjustment_of) if r.adjustment_of else None,
-            "computed_from_rule_id": str(r.computed_from_rule_id) if r.computed_from_rule_id else None,
-            "created_at": r.created_at.isoformat(),
-            "closed_at": r.closed_at.isoformat() if r.closed_at else None,
-        }
+        PayrollLineResponse(
+            id=str(r.id),
+            organization_id=str(r.organization_id),
+            employee_id=str(r.employee_id),
+            ledger_month=r.ledger_month.isoformat(),
+            line_type=r.line_type,
+            amount_cents=r.amount_cents,
+            currency=r.currency,
+            status=r.status,
+            adjustment_of=str(r.adjustment_of) if r.adjustment_of else None,
+            computed_from_rule_id=str(r.computed_from_rule_id) if r.computed_from_rule_id else None,
+            created_at=r.created_at.isoformat(),
+            closed_at=r.closed_at.isoformat() if r.closed_at else None,
+        )
         for r in records
     ]
 
 
-@router.post("/close-month", status_code=status.HTTP_200_OK)
+@router.post("/close-month", response_model=CloseMonthResponse, status_code=status.HTTP_200_OK)
 async def close_month(
     payload: CloseMonthPayload,
     request: Request,
     db: AsyncSession = Depends(get_db),
-):
+) -> CloseMonthResponse:
+    """
+    Close a payroll month for the organization.
+    
+    Locks all open ledger lines for the specified month, preventing further modifications.
+    Closed lines can only be adjusted in subsequent open months. Accessible only by admins.
+    """
     ctx = request.state.tenant_context
     if not ctx:
         raise HTTPException(
@@ -130,15 +173,22 @@ async def close_month(
     result = await db.execute(stmt)
     await db.flush()
 
-    return {"closed_count": result.rowcount}
+    return CloseMonthResponse(closed_count=result.rowcount)
 
 
-@router.post("/adjustments", status_code=status.HTTP_201_CREATED)
+@router.post("/adjustments", response_model=AdjustmentResponse, status_code=status.HTTP_201_CREATED)
 async def create_adjustment(
     payload: AdjustmentPayload,
     request: Request,
     db: AsyncSession = Depends(get_db),
-):
+) -> AdjustmentResponse:
+    """
+    Create a payroll adjustment against a closed payroll ledger line.
+    
+    Resolves the rule that was valid *as of* the original line's month, recomputes 
+    the correct amount, and appends a delta adjustment line to the current open month.
+    Closed months are strictly immutable. Accessible only by admins.
+    """
     ctx = request.state.tenant_context
     if not ctx:
         raise HTTPException(
@@ -235,15 +285,15 @@ async def create_adjustment(
     await db.flush()
     await db.refresh(adjustment_line)
 
-    return {
-        "id": adjustment_line.id,
-        "organization_id": adjustment_line.organization_id,
-        "employee_id": adjustment_line.employee_id,
-        "ledger_month": adjustment_line.ledger_month,
-        "line_type": adjustment_line.line_type,
-        "amount_cents": adjustment_line.amount_cents,
-        "currency": adjustment_line.currency,
-        "status": adjustment_line.status,
-        "adjustment_of": adjustment_line.adjustment_of,
-        "computed_from_rule_id": adjustment_line.computed_from_rule_id,
-    }
+    return AdjustmentResponse(
+        id=adjustment_line.id,
+        organization_id=adjustment_line.organization_id,
+        employee_id=adjustment_line.employee_id,
+        ledger_month=adjustment_line.ledger_month,
+        line_type=adjustment_line.line_type,
+        amount_cents=adjustment_line.amount_cents,
+        currency=adjustment_line.currency,
+        status=adjustment_line.status,
+        adjustment_of=adjustment_line.adjustment_of,
+        computed_from_rule_id=adjustment_line.computed_from_rule_id,
+    )

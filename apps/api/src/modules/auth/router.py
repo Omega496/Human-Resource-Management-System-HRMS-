@@ -37,6 +37,12 @@ class LoginResponse(BaseModel):
 
 @router.post("/login", response_model=LoginResponse)
 async def login(payload: LoginRequest, response: Response) -> LoginResponse:
+    """
+    Log in an employee using email and password.
+    
+    Validates credentials, creates a short-lived JWT access token, and sets a secure, 
+    HttpOnly refresh token cookie.
+    """
     async with superuser_sessionmaker() as session:
         # 1. Lookup employee by email (using superuser to bypass RLS since context isn't set yet)
         stmt = select(Employee).where(
@@ -92,6 +98,12 @@ async def login(payload: LoginRequest, response: Response) -> LoginResponse:
 
 @router.post("/refresh", response_model=LoginResponse)
 async def refresh(request: Request, response: Response) -> LoginResponse:
+    """
+    Rotate and refresh the access token using the HttpOnly refresh token cookie.
+    
+    Verifies that the provided refresh token is valid and unexpired, rotates it 
+    race-safely, and issues a new access token and a new refresh token cookie.
+    """
     refresh_token = request.cookies.get("refresh_token")
     if not refresh_token:
         raise HTTPException(
@@ -179,8 +191,18 @@ async def refresh(request: Request, response: Response) -> LoginResponse:
         return LoginResponse(access_token=access_token)
 
 
-@router.post("/logout")
-async def logout(request: Request, response: Response) -> dict:
+class LogoutResponse(BaseModel):
+    message: str
+
+
+@router.post("/logout", response_model=LogoutResponse)
+async def logout(request: Request, response: Response) -> LogoutResponse:
+    """
+    Log out the current employee.
+    
+    Revokes the active refresh token and access token (blacklists it in Redis), 
+    and deletes the refresh token cookie.
+    """
     # 1. Revoke refresh token
     refresh_token = request.cookies.get("refresh_token")
     if refresh_token:
@@ -217,4 +239,4 @@ async def logout(request: Request, response: Response) -> dict:
         samesite="strict",
     )
 
-    return {"message": "Logged out successfully"}
+    return LogoutResponse(message="Logged out successfully")

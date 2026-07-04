@@ -1,0 +1,61 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: worker
+  namespace: hrms
+  labels:
+    app: worker
+    tier: app
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: worker
+  template:
+    metadata:
+      labels:
+        app: worker
+        tier: app
+    spec:
+      containers:
+        - name: worker
+          image: hrms-worker:latest
+          env:
+            - name: DATABASE_URL
+              valueFrom:
+                secretKeyRef:
+                  name: hrms-secrets
+                  key: DATABASE_URL
+            - name: REDIS_URL
+              valueFrom:
+                secretKeyRef:
+                  name: hrms-secrets
+                  key: REDIS_URL
+            - name: JWT_SIGNING_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: hrms-secrets
+                  key: JWT_SIGNING_KEY
+            - name: AUTOMATION_CALLBACK_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: hrms-secrets
+                  key: AUTOMATION_CALLBACK_SECRET
+            - name: PSEUDONYMIZATION_PEPPER
+              valueFrom:
+                secretKeyRef:
+                  name: hrms-secrets
+                  key: PSEUDONYMIZATION_PEPPER
+            - name: ENVIRONMENT
+              value: "production"
+          # Liveness and readiness are less critical for workers but we can run Celery inspect ping to check connection
+          livenessProbe:
+            exec:
+              command: ["celery", "-A", "src.core.celery_client.celery_app", "inspect", "ping"]
+            initialDelaySeconds: 30
+            periodSeconds: 60
+          readinessProbe:
+            exec:
+              command: ["celery", "-A", "src.core.celery_client.celery_app", "inspect", "ping"]
+            initialDelaySeconds: 15
+            periodSeconds: 30

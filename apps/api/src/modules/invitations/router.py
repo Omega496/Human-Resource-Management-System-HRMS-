@@ -31,11 +31,36 @@ class InvitationAccept(BaseModel):
     password: str
 
 
-@router.get("/invitations")
+class InvitationRecordResponse(BaseModel):
+    id: str
+    email: str
+    role: str
+    expires_at: str
+    used_at: str | None = None
+    created_at: str
+
+
+class InvitationCreateResponse(BaseModel):
+    invitation_link: str
+    raw_token: str
+    email: str
+    role: str
+
+
+class InvitationAcceptResponse(BaseModel):
+    detail: str
+
+
+@router.get("/invitations", response_model=list[InvitationRecordResponse])
 async def get_invitations(
     request: Request,
     db: AsyncSession = Depends(get_db),
-):
+) -> list[InvitationRecordResponse]:
+    """
+    Retrieve all pending, expired, and used signup invitations for the organization.
+    
+    Accessible only by admins.
+    """
     ctx = request.state.tenant_context
     if not ctx:
         raise HTTPException(
@@ -51,24 +76,31 @@ async def get_invitations(
     res = await db.execute(stmt)
     records = res.scalars().all()
     return [
-        {
-            "id": str(r.id),
-            "email": r.email,
-            "role": r.role,
-            "expires_at": r.expires_at.isoformat(),
-            "used_at": r.used_at.isoformat() if r.used_at else None,
-            "created_at": r.created_at.isoformat(),
-        }
+        InvitationRecordResponse(
+            id=str(r.id),
+            email=r.email,
+            role=r.role,
+            expires_at=r.expires_at.isoformat(),
+            used_at=r.used_at.isoformat() if r.used_at else None,
+            created_at=r.created_at.isoformat(),
+        )
         for r in records
     ]
 
 
-@router.post("/invitations", status_code=status.HTTP_201_CREATED)
+@router.post("/invitations", response_model=InvitationCreateResponse, status_code=status.HTTP_201_CREATED)
 async def create_invitation(
     payload: InvitationCreate,
     request: Request,
     db: AsyncSession = Depends(get_db),
-):
+) -> InvitationCreateResponse:
+    """
+    Issue a new single-use signup invitation for the organization.
+    
+    Generates a cryptographically secure token, hashes it in the database, 
+    and returns the raw token to be shared with the invitee. Expires in 24 hours.
+    Accessible only by admins.
+    """
     # 1. Admin-only role check
     ctx = request.state.tenant_context
     if not ctx:
@@ -101,16 +133,22 @@ async def create_invitation(
 
     # 4. Return registration link with RAW token
     invitation_link = f"https://example.com/accept-invitation?token={raw_token}"
-    return {
-        "invitation_link": invitation_link,
-        "raw_token": raw_token,
-        "email": payload.email,
-        "role": payload.role,
-    }
+    return InvitationCreateResponse(
+        invitation_link=invitation_link,
+        raw_token=raw_token,
+        email=payload.email,
+        role=payload.role,
+    )
 
 
-@router.post("/invitations/accept", status_code=status.HTTP_200_OK)
-async def accept_invitation(payload: InvitationAccept):
+@router.post("/invitations/accept", response_model=InvitationAcceptResponse, status_code=status.HTTP_200_OK)
+async def accept_invitation(payload: InvitationAccept) -> InvitationAcceptResponse:
+    """
+    Accept an invitation to register a new employee account.
+    
+    Validates token and email, marks the invitation as used in a transaction, 
+    and creates the corresponding employee record. Safe against token reuse.
+    """
     token_hash = hashlib.sha256(payload.raw_token.encode()).hexdigest()
 
     # Use superuser_sessionmaker to bypass RLS since the client does not have tenant context yet
@@ -160,4 +198,4 @@ async def accept_invitation(payload: InvitationAccept):
             )
             session.add(new_employee)
 
-    return {"detail": "Account registered successfully"}
+    return InvitationAcceptResponse(detail="Account registered successfully")

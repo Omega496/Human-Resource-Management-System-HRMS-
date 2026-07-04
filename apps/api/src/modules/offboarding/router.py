@@ -10,15 +10,33 @@ from src.modules.offboarding.service import PseudonymizationService
 
 logger = logging.getLogger(__name__)
 
+from datetime import datetime
+from pydantic import BaseModel
+
 router = APIRouter(prefix="/offboarding", tags=["offboarding"])
 
 
-@router.post("/{employee_id}/forget", status_code=status.HTTP_200_OK)
+class PseudonymizationResponse(BaseModel):
+    original_employee_id: uuid.UUID
+    pseudonym_hash: str
+    structural_cohort: str
+    pseudonymized_at: datetime
+    requested_by: str
+
+
+@router.post("/{employee_id}/forget", response_model=PseudonymizationResponse, status_code=status.HTTP_200_OK)
 async def forget_employee(
     employee_id: uuid.UUID,
     request: Request,
     db: AsyncSession = Depends(get_db),
-):
+) -> PseudonymizationResponse:
+    """
+    Process GDPR "Right to be Forgotten" (pseudonymization) request.
+    
+    Checks that the target employee is terminated, validates authorization (admin of same 
+    org or the employee themselves), updates the database using structural cohort hashing, 
+    and inserts a record in the pseudonymization keys table.
+    """
     ctx = request.state.tenant_context
     if not ctx:
         raise HTTPException(
@@ -62,10 +80,10 @@ async def forget_employee(
             detail=str(e),
         )
 
-    return {
-        "original_employee_id": mapping.original_employee_id,
-        "pseudonym_hash": mapping.pseudonym_hash,
-        "structural_cohort": mapping.structural_cohort,
-        "pseudonymized_at": mapping.pseudonymized_at,
-        "requested_by": mapping.requested_by,
-    }
+    return PseudonymizationResponse(
+        original_employee_id=mapping.original_employee_id,
+        pseudonym_hash=mapping.pseudonym_hash,
+        structural_cohort=mapping.structural_cohort,
+        pseudonymized_at=mapping.pseudonymized_at,
+        requested_by=mapping.requested_by,
+    )

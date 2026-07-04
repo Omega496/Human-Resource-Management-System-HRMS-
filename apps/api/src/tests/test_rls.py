@@ -9,6 +9,9 @@ from src.db.models.organization import Organization
 from src.db.session import tenant_scoped_session
 
 
+pytestmark = pytest.mark.rls
+
+
 @pytest.mark.asyncio
 async def test_tenant_rls_isolation() -> None:
     # 1. Create two organizations using a platform session (no tenant context set)

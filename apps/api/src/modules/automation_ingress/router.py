@@ -30,12 +30,30 @@ class AutomationJobCreate(BaseModel):
     extraction_type: str
 
 
-@public_router.post("/automation-jobs", status_code=status.HTTP_201_CREATED)
+class AutomationJobResponse(BaseModel):
+    id: uuid.UUID
+    status: str
+    target_url: str
+    extraction_type: str
+    created_at: datetime
+
+
+class AutomationCallbackResponse(BaseModel):
+    status: str
+
+
+@public_router.post("/automation-jobs", response_model=AutomationJobResponse, status_code=status.HTTP_201_CREATED)
 async def create_automation_job(
     payload: AutomationJobCreate,
     request: Request,
     db: AsyncSession = Depends(get_db),
-):
+) -> AutomationJobResponse:
+    """
+    Queue a new sandboxed automation job.
+    
+    Creates a job record in the database and dispatches a Celery task to the isolated 
+    automation worker sandbox. Only sends non-sensitive params to the task.
+    """
     ctx = request.state.tenant_context
     if not ctx:
         raise HTTPException(
@@ -66,17 +84,24 @@ async def create_automation_job(
         }
     )
     
-    return {
-        "id": job.id,
-        "status": job.status,
-        "target_url": job.target_url,
-        "extraction_type": job.extraction_type,
-        "created_at": job.created_at
-    }
+    return AutomationJobResponse(
+        id=job.id,
+        status=job.status,
+        target_url=job.target_url,
+        extraction_type=job.extraction_type,
+        created_at=job.created_at,
+    )
 
 
-@internal_router.post("/internal/automation/callback", status_code=status.HTTP_200_OK)
-async def automation_callback(request: Request):
+@internal_router.post("/internal/automation/callback", response_model=AutomationCallbackResponse, status_code=status.HTTP_200_OK)
+async def automation_callback(request: Request) -> AutomationCallbackResponse:
+    """
+    Secure callback endpoint for the sandboxed automation worker.
+    
+    Validates the payload signature using constant-time HMAC-SHA256 comparison, 
+    re-derives the tenant context based on the original job record, validates 
+    against replay attacks, and updates the job record with the extracted text.
+    """
     # a. Recompute HMAC over raw request body using shared secret
     body_bytes = await request.body()
     
@@ -182,4 +207,4 @@ async def automation_callback(request: Request):
         )
         await tenant_db.execute(stmt)
 
-    return {"status": "success"}
+    return AutomationCallbackResponse(status="success")

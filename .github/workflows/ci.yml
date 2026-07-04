@@ -1,0 +1,193 @@
+name: CI
+
+on:
+  pull_request:
+    branches:
+      - main
+
+jobs:
+  backend-checks:
+    name: Backend Checks (FastAPI)
+    runs-on: ubuntu-latest
+
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: hrms_user
+          POSTGRES_PASSWORD: hrms_password
+          POSTGRES_DB: hrms_db
+        ports:
+          - 5433:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+      redis:
+        image: redis:7
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    steps:
+      - name: Check out code
+        uses: actions/checkout@v4
+
+      - name: Install postgresql-client
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y postgresql-client
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+
+      - name: Install dependencies
+        run: uv sync
+        working-directory: apps/api
+
+      - name: Wait for PostgreSQL and Initialize Users
+        run: |
+          until pg_isready -h localhost -p 5433; do
+            echo "Waiting for PostgreSQL database..."
+            sleep 1
+          done
+          PGPASSWORD=hrms_password psql -h localhost -p 5433 -U hrms_user -d hrms_db -f infra/docker/postgres-init.sql
+        env:
+          PGPASSWORD: hrms_password
+
+      - name: Run Alembic migrations
+        run: uv run alembic upgrade head
+        working-directory: apps/api
+        env:
+          DATABASE_URL: postgresql+asyncpg://hrms_user:hrms_password@localhost:5433/hrms_db
+          REDIS_URL: redis://localhost:6379/0
+
+      - name: Ruff Linter Check
+        run: uv run ruff check .
+        working-directory: apps/api
+
+      - name: Mypy Static Type Check
+        run: uv run mypy src
+        working-directory: apps/api
+
+      - name: Run RLS adversarial tests explicitly
+        run: PYTHONPATH="" uv run pytest -q -m rls --maxfail=1
+        working-directory: apps/api
+        env:
+          DATABASE_URL: postgresql+asyncpg://hrms_app:hrms_app_password@localhost:5433/hrms_db
+          REDIS_URL: redis://localhost:6379/0
+          JWT_SIGNING_KEY: test_signing_key_not_for_prod_minimum_32_chars_long
+          AUTOMATION_CALLBACK_SECRET: test_automation_callback_secret_123456789
+          REPLAY_WINDOW_SECONDS: 300
+          PSEUDONYMIZATION_PEPPER: local_dev_secret_pepper_value_32_bytes_long
+
+      - name: Run full backend test suite
+        run: PYTHONPATH="" uv run pytest -q --maxfail=1
+        working-directory: apps/api
+        env:
+          DATABASE_URL: postgresql+asyncpg://hrms_app:hrms_app_password@localhost:5433/hrms_db
+          REDIS_URL: redis://localhost:6379/0
+          JWT_SIGNING_KEY: test_signing_key_not_for_prod_minimum_32_chars_long
+          AUTOMATION_CALLBACK_SECRET: test_automation_callback_secret_123456789
+          REPLAY_WINDOW_SECONDS: 300
+          PSEUDONYMIZATION_PEPPER: local_dev_secret_pepper_value_32_bytes_long
+
+  frontend-checks:
+    name: Frontend Checks (${{ matrix.app }})
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        app: [apps/web-employee, apps/web-admin]
+
+    steps:
+      - name: Check out code
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+          cache-dependency-path: |
+            packages/shared-types/package-lock.json
+            ${{ matrix.app }}/package-lock.json
+
+      - name: Install and Build Shared Types
+        run: |
+          npm install
+          npm run build
+        working-directory: packages/shared-types
+
+      - name: Install frontend dependencies
+        run: npm ci
+        working-directory: ${{ matrix.app }}
+
+      - name: Run Typecheck
+        run: npm run typecheck
+        working-directory: ${{ matrix.app }}
+
+      - name: Run Lint
+        run: npm run lint
+        working-directory: ${{ matrix.app }}
+
+      - name: Run Tests
+        run: npm run test
+        working-directory: ${{ matrix.app }}
+
+      - name: Build Application
+        run: npm run build
+        working-directory: ${{ matrix.app }}
+
+  automation-checks:
+    name: Automation Sandbox Checks
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Check out code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+
+      - name: Install dependencies
+        run: uv sync
+        working-directory: apps/automation
+
+      - name: Run automation test suite
+        run: PYTHONPATH="" uv run pytest
+        working-directory: apps/automation
+
+      - name: Verify isolation tripwire (Prime Directive #6)
+        run: |
+          echo "Checking that apps/automation contains no references to database or Redis secrets..."
+          # Case-insensitive checks to fail the build if direct database or redis variables are added
+          if grep -rni "database_url" apps/automation --exclude-dir=.venv --exclude-dir=.pytest_cache; then
+            echo "❌ ERROR: 'database_url' was referenced in apps/automation!"
+            echo "Direct database access from the automation sandbox violates Prime Directive #6 (Sandboxed Automation)."
+            exit 1
+          fi
+          if grep -rni "redis_url" apps/automation --exclude-dir=.venv --exclude-dir=.pytest_cache; then
+            echo "❌ ERROR: 'redis_url' was referenced in apps/automation!"
+            echo "Direct Redis credentials exposure to the automation sandbox violates Prime Directive #6 (Sandboxed Automation)."
+            exit 1
+          fi
+          echo "✅ Automation sandbox isolation tripwire check passed."

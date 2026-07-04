@@ -11,10 +11,10 @@ import httpx
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("automation_worker")
 
-# Read settings from environment only (No database or Redis connection string hardcoded or in config)
-broker_url = os.environ.get("CELERY_BROKER_URL") or os.environ.get("REDIS_URL")
+# Read settings from environment only (No database connection string or direct Redis secrets in code)
+broker_url = os.environ.get("CELERY_BROKER_URL")
 if not broker_url:
-    logger.warning("No CELERY_BROKER_URL or REDIS_URL found in environment. Defaulting to redis://localhost:6379/0 for development.")
+    logger.warning("No CELERY_BROKER_URL found in environment. Defaulting to redis://localhost:6379/0 for development.")
     broker_url = "redis://localhost:6379/0"
 
 # Initialize Celery

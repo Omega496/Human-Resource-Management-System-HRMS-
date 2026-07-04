@@ -30,11 +30,51 @@ class EmployeeUpdate(BaseModel):
         return v
 
 
-@router.get("/employees")
+from datetime import datetime, timezone
+
+class EmployeeRecordResponse(BaseModel):
+    id: str
+    email: str | None = None
+    full_name: str | None = None
+    timezone: str
+    role: str
+    status: str
+    deleted_at: str | None = None
+
+
+class EmployeeMeResponse(BaseModel):
+    id: str
+    email: str | None = None
+    full_name: str | None = None
+    timezone: str
+    role: str
+    organization_id: str
+
+
+class EmployeeUpdateMeResponse(BaseModel):
+    id: uuid.UUID
+    email: str | None = None
+    full_name: str | None = None
+    timezone: str
+    role: str
+
+
+class EmployeeTerminateResponse(BaseModel):
+    id: uuid.UUID
+    status: str
+    deleted_at: datetime
+
+
+@router.get("/employees", response_model=list[EmployeeRecordResponse])
 async def get_employees(
     request: Request,
     db: AsyncSession = Depends(get_db),
-):
+) -> list[EmployeeRecordResponse]:
+    """
+    Retrieve all active and soft-deleted employee records for the organization.
+    
+    Accessible only by admins. RLS automatically filters results to the tenant organization.
+    """
     ctx = request.state.tenant_context
     if not ctx:
         raise HTTPException(
@@ -50,24 +90,27 @@ async def get_employees(
     res = await db.execute(stmt)
     records = res.scalars().all()
     return [
-        {
-            "id": str(r.id),
-            "email": r.email,
-            "full_name": r.full_name,
-            "timezone": r.timezone,
-            "role": r.role,
-            "status": r.status,
-            "deleted_at": r.deleted_at.isoformat() if r.deleted_at else None,
-        }
+        EmployeeRecordResponse(
+            id=str(r.id),
+            email=r.email,
+            full_name=r.full_name,
+            timezone=r.timezone,
+            role=r.role,
+            status=r.status,
+            deleted_at=r.deleted_at.isoformat() if r.deleted_at else None,
+        )
         for r in records
     ]
 
 
-@router.get("/employees/me", status_code=status.HTTP_200_OK)
+@router.get("/employees/me", response_model=EmployeeMeResponse, status_code=status.HTTP_200_OK)
 async def get_me(
     request: Request,
     db: AsyncSession = Depends(get_db),
-):
+) -> EmployeeMeResponse:
+    """
+    Retrieve the profile details of the currently authenticated employee.
+    """
     ctx = request.state.tenant_context
     if not ctx:
         raise HTTPException(
@@ -84,22 +127,25 @@ async def get_me(
             detail="Employee not found",
         )
 
-    return {
-        "id": str(employee.id),
-        "email": employee.email,
-        "full_name": employee.full_name,
-        "timezone": employee.timezone,
-        "role": employee.role,
-        "organization_id": str(employee.organization_id),
-    }
+    return EmployeeMeResponse(
+        id=str(employee.id),
+        email=employee.email,
+        full_name=employee.full_name,
+        timezone=employee.timezone,
+        role=employee.role,
+        organization_id=str(employee.organization_id),
+    )
 
 
-@router.patch("/employees/me", status_code=status.HTTP_200_OK)
+@router.patch("/employees/me", response_model=EmployeeUpdateMeResponse, status_code=status.HTTP_200_OK)
 async def update_me(
     payload: EmployeeUpdate,
     request: Request,
     db: AsyncSession = Depends(get_db),
-):
+) -> EmployeeUpdateMeResponse:
+    """
+    Update profile details (e.g. full name, timezone) of the currently authenticated employee.
+    """
     ctx = request.state.tenant_context
     if not ctx:
         raise HTTPException(
@@ -122,22 +168,27 @@ async def update_me(
         employee.timezone = payload.timezone
 
     await db.flush()
-    return {
-        "id": employee.id,
-        "email": employee.email,
-        "full_name": employee.full_name,
-        "timezone": employee.timezone,
-        "role": employee.role,
-    }
+    return EmployeeUpdateMeResponse(
+        id=employee.id,
+        email=employee.email,
+        full_name=employee.full_name,
+        timezone=employee.timezone,
+        role=employee.role,
+    )
 
 
-@router.patch("/employees/{employee_id}", status_code=status.HTTP_200_OK)
+@router.patch("/employees/{employee_id}", response_model=EmployeeUpdateMeResponse, status_code=status.HTTP_200_OK)
 async def update_employee(
     employee_id: uuid.UUID,
     payload: EmployeeUpdate,
     request: Request,
     db: AsyncSession = Depends(get_db),
-):
+) -> EmployeeUpdateMeResponse:
+    """
+    Update profile details of a specific employee.
+    
+    Admins can update anyone's profile. Normal employees can only update their own profile.
+    """
     ctx = request.state.tenant_context
     if not ctx:
         raise HTTPException(
@@ -167,23 +218,27 @@ async def update_employee(
         employee.timezone = payload.timezone
 
     await db.flush()
-    return {
-        "id": employee.id,
-        "email": employee.email,
-        "full_name": employee.full_name,
-        "timezone": employee.timezone,
-        "role": employee.role,
-    }
+    return EmployeeUpdateMeResponse(
+        id=employee.id,
+        email=employee.email,
+        full_name=employee.full_name,
+        timezone=employee.timezone,
+        role=employee.role,
+    )
 
 
-from datetime import datetime, timezone
-
-@router.post("/employees/{employee_id}/terminate", status_code=status.HTTP_200_OK)
+@router.post("/employees/{employee_id}/terminate", response_model=EmployeeTerminateResponse, status_code=status.HTTP_200_OK)
 async def terminate_employee(
     employee_id: uuid.UUID,
     request: Request,
     db: AsyncSession = Depends(get_db),
-):
+) -> EmployeeTerminateResponse:
+    """
+    Soft-terminate an employee's profile.
+    
+    Sets the employee's status to 'terminated' and populates the deleted_at timestamp.
+    Only accessible by admins.
+    """
     ctx = request.state.tenant_context
     if not ctx:
         raise HTTPException(
@@ -213,9 +268,9 @@ async def terminate_employee(
     employee.deleted_at = datetime.now(timezone.utc)
 
     await db.flush()
-    return {
-        "id": employee.id,
-        "status": employee.status,
-        "deleted_at": employee.deleted_at,
-    }
+    return EmployeeTerminateResponse(
+        id=employee.id,
+        status=employee.status,
+        deleted_at=employee.deleted_at,
+    )
 

@@ -1,0 +1,46 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: automation
+  namespace: hrms
+  labels:
+    app: automation
+    tier: sandbox
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: automation
+  template:
+    metadata:
+      labels:
+        app: automation
+        tier: sandbox
+    spec:
+      containers:
+        - name: automation
+          image: hrms-automation:latest
+          env:
+            - name: CELERY_BROKER_URL
+              valueFrom:
+                secretKeyRef:
+                  name: hrms-secrets
+                  key: REDIS_URL
+            - name: AUTOMATION_CALLBACK_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: hrms-secrets
+                  key: AUTOMATION_CALLBACK_SECRET
+            - name: API_INTERNAL_BASE_URL
+              value: "http://api-service.hrms.svc.cluster.local:8000"
+          # Liveness and readiness using Celery inspect ping
+          livenessProbe:
+            exec:
+              command: ["celery", "-A", "src.worker.app", "inspect", "ping"]
+            initialDelaySeconds: 30
+            periodSeconds: 60
+          readinessProbe:
+            exec:
+              command: ["celery", "-A", "src.worker.app", "inspect", "ping"]
+            initialDelaySeconds: 15
+            periodSeconds: 30

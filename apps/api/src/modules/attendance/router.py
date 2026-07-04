@@ -21,12 +21,25 @@ class ClockEventCreate(BaseModel):
     client_reported_at: datetime | None = None
 
 
-@router.post("/attendance/clock-in", status_code=status.HTTP_201_CREATED)
+class ClockEventResponse(BaseModel):
+    id: uuid.UUID
+    event_type: str
+    recorded_at: datetime
+    client_reported_at: datetime | None = None
+
+
+@router.post("/attendance/clock-in", response_model=ClockEventResponse, status_code=status.HTTP_201_CREATED)
 async def clock_in(
     payload: ClockEventCreate,
     request: Request,
     db: AsyncSession = Depends(get_db),
-):
+) -> ClockEventResponse:
+    """
+    Record a clock-in event for the authenticated employee.
+    
+    Verifies that the employee's last status was not 'clock_in' to enforce alternating events.
+    The timestamp is set by the server.
+    """
     ctx = request.state.tenant_context
     if not ctx:
         raise HTTPException(
@@ -61,20 +74,26 @@ async def clock_in(
     await db.flush()
     await db.refresh(event)
 
-    return {
-        "id": event.id,
-        "event_type": event.event_type,
-        "recorded_at": event.recorded_at,
-        "client_reported_at": event.client_reported_at,
-    }
+    return ClockEventResponse(
+        id=event.id,
+        event_type=event.event_type,
+        recorded_at=event.recorded_at,
+        client_reported_at=event.client_reported_at,
+    )
 
 
-@router.post("/attendance/clock-out", status_code=status.HTTP_201_CREATED)
+@router.post("/attendance/clock-out", response_model=ClockEventResponse, status_code=status.HTTP_201_CREATED)
 async def clock_out(
     payload: ClockEventCreate,
     request: Request,
     db: AsyncSession = Depends(get_db),
-):
+) -> ClockEventResponse:
+    """
+    Record a clock-out event for the authenticated employee.
+    
+    Verifies that the employee's last status was 'clock_in' to enforce alternating events.
+    The timestamp is set by the server.
+    """
     ctx = request.state.tenant_context
     if not ctx:
         raise HTTPException(
@@ -109,22 +128,40 @@ async def clock_out(
     await db.flush()
     await db.refresh(event)
 
-    return {
-        "id": event.id,
-        "event_type": event.event_type,
-        "recorded_at": event.recorded_at,
-        "client_reported_at": event.client_reported_at,
-    }
+    return ClockEventResponse(
+        id=event.id,
+        event_type=event.event_type,
+        recorded_at=event.recorded_at,
+        client_reported_at=event.client_reported_at,
+    )
 
 
-@router.get("/attendance/history", status_code=status.HTTP_200_OK)
+class AttendanceHistoryItem(BaseModel):
+    id: uuid.UUID
+    event_type: str
+    recorded_at_utc: datetime
+    recorded_at_local: datetime
+    client_reported_at: datetime | None = None
+
+
+class AttendanceHistoryResponse(BaseModel):
+    events: list[AttendanceHistoryItem]
+
+
+@router.get("/attendance/history", response_model=AttendanceHistoryResponse, status_code=status.HTTP_200_OK)
 async def get_history(
     request: Request,
     employee_id: uuid.UUID | None = None,
     from_date: datetime | None = None,
     to_date: datetime | None = None,
     db: AsyncSession = Depends(get_db),
-):
+) -> AttendanceHistoryResponse:
+    """
+    Retrieve attendance logs for an employee.
+    
+    Normal employees can only view their own history. Admins can view history for any employee 
+    within their organization. Query-time timezone conversion is used to return local time.
+    """
     ctx = request.state.tenant_context
     if not ctx:
         raise HTTPException(
@@ -164,12 +201,14 @@ async def get_history(
 
     events_data = []
     for event, local_time in rows:
-        events_data.append({
-            "id": event.id,
-            "event_type": event.event_type,
-            "recorded_at_utc": event.recorded_at,
-            "recorded_at_local": local_time,
-            "client_reported_at": event.client_reported_at,
-        })
+        events_data.append(
+            AttendanceHistoryItem(
+                id=event.id,
+                event_type=event.event_type,
+                recorded_at_utc=event.recorded_at,
+                recorded_at_local=local_time,
+                client_reported_at=event.client_reported_at,
+            )
+        )
 
-    return {"events": events_data}
+    return AttendanceHistoryResponse(events=events_data)
