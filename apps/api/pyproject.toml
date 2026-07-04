@@ -1,0 +1,45 @@
+[project]
+name = "api"
+version = "0.1.0"
+description = "Add your description here"
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = [
+    "alembic>=1.18.5",
+    "asyncpg>=0.31.0",
+    "bcrypt>=5.0.0",
+    "celery>=5.6.3",
+    "fastapi>=0.139.0",
+    "passlib[bcrypt]>=1.7.4",
+    "pydantic>=2",
+    "pydantic-settings>=2.14.2",
+    "pyjwt[crypto]>=2.13.0",
+    "redis>=8.0.1",
+    "sqlalchemy[asyncio]>=2.0.51",
+    "uvicorn[standard]>=0.50.0",
+]
+
+[dependency-groups]
+dev = [
+    "httpx>=0.28.1",
+    "mypy>=2.1.0",
+    "pytest>=9.1.1",
+    "pytest-asyncio>=1.4.0",
+    "ruff>=0.15.20",
+]
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "N", "UP", "B", "C4", "ARG", "PTH", "RUF"]
+ignore = []
+
+[tool.mypy]
+python_version = "3.12"
+strict = true
+ignore_missing_imports = true
+plugins = [
+    "pydantic.mypy"
+]

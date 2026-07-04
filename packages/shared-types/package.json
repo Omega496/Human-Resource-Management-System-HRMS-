@@ -1,0 +1,14 @@
+{
+  "name": "@hrms/shared-types",
+  "version": "0.1.0",
+  "private": true,
+  "description": "OpenAPI-generated TypeScript models and API clients for the Zero-Trust HRMS.",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "scripts": {
+    "build": "tsc"
+  },
+  "devDependencies": {
+    "typescript": "~6.0.2"
+  }
+}
